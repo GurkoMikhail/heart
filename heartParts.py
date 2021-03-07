@@ -3,7 +3,7 @@ from numba import jit
 from numpy import cos, sin, dot
 
 
-class LeftVentricle:
+class Ellipsoid:
 
     def __init__(self, coordinates, coefficients, ellipsoidRatio, value, eulerAngles):
         self.coordinates = np.asarray(coordinates)
@@ -25,7 +25,7 @@ class LeftVentricle:
         x0, y0, z0 = self.coordinates
         a, b, c, = self.coefficients
         result = ((x - x0)**2)/a**2 + ((y - y0)**2)/b**2 + ((z - z0)**2)/c**2
-        indices = np.nonzero(z > z0)
+        indices = np.nonzero(z < z0/2)
         result[indices] = 0
         return result
 
@@ -82,13 +82,31 @@ class LeftVentricle:
         for i in range(coordinates.shape[0]):
             coordinates[i] = dot(R, coordinates[i])
 
+
+class Hyperboloid(Ellipsoid):
+
+    def _solveTheEquation(self, coordinates):
+        x = coordinates[:, 0]
+        y = coordinates[:, 1]
+        z = coordinates[:, 2]
+        x0, y0, z0 = self.coordinates
+        a, b, c, = self.coefficients
+        result = - ((x - x0)**2)/a**2 - ((y - y0)**2)/b**2 + ((z - z0)**2)/c**2
+        indices = np.nonzero(z > z0)
+        result[indices] = 0
+        indices = np.nonzero(z < 20)
+        result[indices] = 0
+        return result
+
 if __name__ == '__main__':
     voxelSize = 0.4
     volumeShape = np.array((128, 128, 128))
     volumeSize = volumeShape*voxelSize
     volume = np.zeros(volumeShape)
-    leftVentricle = LeftVentricle((51.2/2, 51.2/2, 51.2/2), (6/2, 10/2, 20/2), 2, 100, (np.pi/2, np.pi/3, np.pi/4))
-    volumeWithleftVentricle = leftVentricle.placingInVolume(volume, voxelSize)
+    leftVentricle = Ellipsoid((51.2/2, 51.2/2, 51.2/2.5), (5, 8, 10), 2, 100, (0, np.pi/3, 0))
+    volume = leftVentricle.placingInVolume(volume, voxelSize)
+    leftVentricle = Hyperboloid((51.2/2, 51.2/2.5, 51.2/1.15), (3.2, 3.2, 10), 4, 100, (0, 0, 0))
+    volume = leftVentricle.placingInVolume(volume, voxelSize)
 
 
     from PyQt5 import QtGui
@@ -98,26 +116,26 @@ if __name__ == '__main__':
     from pyqtgraph.opengl import GLBoxItem, GLVolumeItem
 
     levels = [
-        np.min(volumeWithleftVentricle),
-        np.max(volumeWithleftVentricle)
+        np.min(volume),
+        np.max(volume)
     ]
 
     def gradientChanged():
-        global volumeWithleftVentricle, volumeItem, gradientEditor, levels
-        indices = np.nonzero(volumeWithleftVentricle == 0)
+        global volume, volumeItem, gradientEditor, levels
+        indices = np.nonzero(volume == 0)
         listTicks = gradientEditor.listTicks()
         listTicks[0][0].color.setAlpha(0)
         for tick in listTicks[1:]:
             tick[0].color.setAlpha(30)
         lut = gradientEditor.getLookupTable(255)
-        volumeColors = np.asarray([makeRGBA(data=slice, lut=lut, levels=levels)[0] for slice in volumeWithleftVentricle])
+        volumeColors = np.asarray([makeRGBA(data=slice, lut=lut, levels=levels)[0] for slice in volume])
         # volumeColors[indices, 3] = 0
         volumeItem.setData(volumeColors)
 
     mkQApp()
     mainWindow = loadUi("UI/volume_visualization.ui")
 
-    volumeItem = GLVolumeItem(None, sliceDensity=2)
+    volumeItem = GLVolumeItem(None, sliceDensity=5)
     volumeItem.scale(*[voxelSize]*3)
     gradientEditor = GradientEditorItem(orientation='right')
     gradientEditor.sigGradientChangeFinished.connect(gradientChanged)
@@ -130,7 +148,7 @@ if __name__ == '__main__':
 
     space_box = GLBoxItem()
     space_box.setSize(*volumeSize)
-    mainWindow.openGLWidget.addItem(space_box)
+    # mainWindow.openGLWidget.addItem(space_box)
 
     mainWindow.show()
     QtGui.QApplication.exec()
